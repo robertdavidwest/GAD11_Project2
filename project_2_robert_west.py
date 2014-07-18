@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
 
 # read in data from csv - and make the index the year ID so that we can create time series
-
+df = pandas.io.parsers.read_csv('baseball.csv',index_col='yearID',parse_dates=True)
 
 # remove zero salaries
 all_data = all_data[all_data.salary>0]
