@@ -1,13 +1,63 @@
 
 import pandas
 import numpy 
+import statsmodels.api as sm
 import matplotlib.pyplot as plt 
 
 from sklearn.linear_model import LinearRegression
 
 # read in data from csv - and make the index the year ID so that we can create time series
-df = pandas.io.parsers.read_csv('baseball.csv',index_col='yearID',parse_dates=True)
 
+df = pandas.io.parsers.read_csv('baseball.csv',parse_dates=True)
+
+
+### CHECKING VARIABLE RELATIONSHIPS ###
+# SHRINKING THE DATA TO MAKE VISUALIZATIONS EASIER #
+df['random'] = numpy.random.randn(len(df))
+df = df[df.random > 1]
+del df['random']
+
+
+df = df.sort(['playerID','yearID'])
+df.set_index('yearID',inplace=True)
+ 
+# Slugging Average [SA or SLG]
+# SA = Number of (Singles + [2 x Doubles] +[ 3 x Triples] + [4 x Home Runs]) divided by At Bats
+df['SA'] = df.R +  2*df.X2B + 3*df.X3B+ 4*df.HR
+
+simple_data = df[['salary','SA','playerID']]
+
+new_df = pandas.DataFrame()
+for player in set(simple_data['playerID']):
+    temp_data = simple_data[simple_data['playerID']==player]
+    temp_data['salary_nextyear'] = temp_data.salary.shift(-1)
+    new_df = new_df.append(temp_data)
+
+new_df['logchange_salary'] = numpy.log(numpy.divide(new_df['salary_nextyear'],new_df['salary']))
+
+
+# log transform of SA superstat
+new_df['SA'] = new_df['SA'].apply(lambda x : 0.01 if x == 0 else x)
+
+    
+new_df['SA'] == 0
+new_df['SA_log'] = numpy.log(new_df['SA'])
+
+new_df = new_df[~new_df.isnull()]
+
+# remove nans
+new_df = new_df[~new_df['logchange_salary'].isnull()]
+new_df = new_df[~new_df['SA_log'].isnull()]
+
+new_df['intercept'] = 1
+X = new_df[['SA_log','intercept']] 
+y = new_df['logchange_salary']
+model = sm.OLS(y, X)
+results = model.fit()
+print results.summary()
+
+
+'''
 # remove zero salaries
 all_data = all_data[all_data.salary>0]
 
@@ -58,6 +108,6 @@ for col in cols:
      reg = pandas.ols(x = all_data.loc[ind, col], y = y_detrnd[ind])
      print reg.beta
      print reg.r2_adj
-
+'''
 
 
