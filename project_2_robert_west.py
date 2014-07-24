@@ -13,45 +13,49 @@ df = pandas.io.parsers.read_csv('baseball.csv',parse_dates=True)
 
 ### CHECKING VARIABLE RELATIONSHIPS ###
 # SHRINKING THE DATA TO MAKE VISUALIZATIONS EASIER #
-df['random'] = numpy.random.randn(len(df))
-df = df[df.random > 1]
-del df['random']
+#df['random'] = numpy.random.randn(len(df))
+#df = df[df.random > 1]
+#del df['random']
 
 
 df = df.sort(['playerID','yearID'])
 df.set_index('yearID',inplace=True)
  
-# Slugging Average [SA or SLG]
+# Slugging Average [SA or SLG] (with no denominator!)
 # SA = Number of (Singles + [2 x Doubles] +[ 3 x Triples] + [4 x Home Runs]) divided by At Bats
 df['SA'] = df.R +  2*df.X2B + 3*df.X3B+ 4*df.HR
 
-simple_data = df[['salary','SA','playerID']]
+simple_data = df[['salary','SA','playerID','weight','height']]
 
 new_df = pandas.DataFrame()
 for player in set(simple_data['playerID']):
     temp_data = simple_data[simple_data['playerID']==player]
-    temp_data['salary_nextyear'] = temp_data.salary.shift(-1)
+    temp_data['cum_SA'] = temp_data['SA'].cumsum()
     new_df = new_df.append(temp_data)
 
-new_df['logchange_salary'] = numpy.log(numpy.divide(new_df['salary_nextyear'],new_df['salary']))
-
-
-# log transform of SA superstat
-new_df['SA'] = new_df['SA'].apply(lambda x : 0.01 if x == 0 else x)
-
-    
-new_df['SA'] == 0
-new_df['SA_log'] = numpy.log(new_df['SA'])
-
-new_df = new_df[~new_df.isnull()]
+# REPLACE INF VALUES WITH NAN #
+new_df = new_df.replace([numpy.inf, -numpy.inf], numpy.nan)
 
 # remove nans
-new_df = new_df[~new_df['logchange_salary'].isnull()]
-new_df = new_df[~new_df['SA_log'].isnull()]
+new_df = new_df.dropna()
 
-new_df['intercept'] = 1
-X = new_df[['SA_log','intercept']] 
-y = new_df['logchange_salary']
+# get yearID back from index
+new_df['yearID'] = new_df.index
+
+
+### CHECKING VARIABLE RELATIONSHIPS ###
+# SHRINKING THE DATA TO MAKE VISUALIZATIONS EASIER #
+#new_df['random'] = numpy.random.rand(len(new_df))
+#train_df = new_df[new_df.random > 0.4]
+
+train_df = new_df
+
+
+train_df['intercept'] = 1
+X = train_df[['yearID','height','cum_SA','intercept']] 
+
+train_df['log_salary'] = numpy.log(train_df['salary'])
+y = train_df['log_salary']
 model = sm.OLS(y, X)
 results = model.fit()
 print results.summary()
