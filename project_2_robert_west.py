@@ -3,111 +3,90 @@ import pandas
 import numpy 
 import statsmodels.api as sm
 import matplotlib.pyplot as plt 
+from sklearn.preprocessing import scale
 
-from sklearn.linear_model import LinearRegression
+numpy.random.seed(seed=1)
 
 # read in data from csv - and make the index the year ID so that we can create time series
 
 df = pandas.io.parsers.read_csv('baseball.csv',parse_dates=True)
-
-
-### CHECKING VARIABLE RELATIONSHIPS ###
-# SHRINKING THE DATA TO MAKE VISUALIZATIONS EASIER #
-df['random'] = numpy.random.randn(len(df))
-df = df[df.random > 1]
-del df['random']
-
-
 df = df.sort(['playerID','yearID'])
 df.set_index('yearID',inplace=True)
  
-# Slugging Average [SA or SLG]
+# Slugging Average [SA or SLG] (with no denominator!)
 # SA = Number of (Singles + [2 x Doubles] +[ 3 x Triples] + [4 x Home Runs]) divided by At Bats
 df['SA'] = df.R +  2*df.X2B + 3*df.X3B+ 4*df.HR
-
-simple_data = df[['salary','SA','playerID']]
-
+ 
 new_df = pandas.DataFrame()
-for player in set(simple_data['playerID']):
-    temp_data = simple_data[simple_data['playerID']==player]
-    temp_data['salary_nextyear'] = temp_data.salary.shift(-1)
+for player in set(df['playerID']):
+    temp_data = df[df['playerID']==player]
+    temp_data['cum_SA'] = temp_data['SA'].cumsum()
     new_df = new_df.append(temp_data)
 
-new_df['logchange_salary'] = numpy.log(numpy.divide(new_df['salary_nextyear'],new_df['salary']))
+# SHRINKING THE DATA TO MAKE VISUALIZATIONS EASIER #
+new_df['random'] = numpy.random.randn(len(new_df))
+new_df = new_df[new_df.random > 1]
+del new_df['random']
 
 
-# log transform of SA superstat
-new_df['SA'] = new_df['SA'].apply(lambda x : 0.01 if x == 0 else x)
+simple_data = new_df[['salary','cum_SA','playerID','weight','height','bats','hofID']]
 
-    
-new_df['SA'] == 0
-new_df['SA_log'] = numpy.log(new_df['SA'])
+### Encode bats as a categorical variable 
+bats = pandas.get_dummies(simple_data['bats'])
+#bats.rename( columns = {'B': 'bats_both_dummy', 'L': 'bats_left_dummy', 'R': 'bats_right_dummy'}, inplace = True)
+#simple_data = simple_data.join(bats)
+#simple_data = simple_data.drop(['bats'])
 
-new_df = new_df[~new_df.isnull()]
+### Encode 'hall_of_fame' as a categorical variable
+#hofame = pandas.get_dummies(~simple_data['hofID'].isnull())
+#hofame.rename( columns = {'True': 'hoffame_dummy'}, inplace = True)
+#simple_data = simple_data.join(hofame)
+simple_data = simple_data.drop(['hofID'])
+
+simple_data['log_salary'] = numpy.log(simple_data['salary'])
+
+# REPLACE INF VALUES WITH NAN #
+simple_data = simple_data.replace([numpy.inf, -numpy.inf], numpy.nan)
 
 # remove nans
-new_df = new_df[~new_df['logchange_salary'].isnull()]
-new_df = new_df[~new_df['SA_log'].isnull()]
+simple_data = simple_data.dropna()
 
-new_df['intercept'] = 1
-X = new_df[['SA_log','intercept']] 
-y = new_df['logchange_salary']
+# get yearID back from index
+simple_data['yearID'] = simple_data.index
+
+# remove inflation by subtracting the annual mean
+#grouped = simple_data.groupby(level=0)
+#yearly_avg_salary = grouped.mean().salary
+
+#simple_data = simple_data.join(pandas.DataFrame({'avg_salary':yearly_avg_salary}),how='left')
+#simple_data['adj_salary'] = simple_data['salary'] - simple_data['avg_salary']
+
+
+### NORMALIZATION ###
+# SCALING # Mean-center then divide by std dev
+# simple_data = simple_data[['yearID','cum_SA', 'height','log_salary']]
+# simple_data = pandas.DataFrame(scale(simple_data), index=simple_data.index, columns=simple_data.columns)
+
+# training data
+simple_data['random'] = numpy.random.rand(len(simple_data))
+train_df = simple_data[simple_data.random > 0.4]
+train_df = simple_data
+
+train_df['intercept'] = 1
+#X = train_df[['bats_both_dummy','bats_left_dummy',  'bats_right_dummy','yearID','height','cum_SA','intercept']] 
+X = train_df[['cum_SA','intercept']] 
+#X = train_df[['yearID','height','cum_SA','intercept']] 
+y = train_df['log_salary']
 model = sm.OLS(y, X)
 results = model.fit()
 print results.summary()
 
+test = simple_data[simple_data.random <= 0.4]
+#test_X = train_df[['bats_both_dummy','bats_left_dummy',  'bats_right_dummy','yearID','height','cum_SA','intercept']] 
+#test_X = test[['yearID','height','cum_SA','intercept']] 
+test_X = test[['cum_SA','intercept']] 
+test_y = test['salary']
+y_hat = numpy.exp(results.predict(test_X))
 
-'''
-# remove zero salaries
-all_data = all_data[all_data.salary>0]
-
-# scatter plot of data, too many variables to run hereb but could do this on a subset later
-# pandas.tools.plotting.scatter_matrix(stats_and_salary)
-
-# Start with a simple model using lagged runs to predict salary
-simple_data = all_data[["HR","salary"]] 
-
-# remove 0 homeruns
-simple_data = simple_data[simple_data.HR != 0 ]
-
-
-# log salary
-simple_data['log_salary'] = all_data.salary.apply(numpy.log)
-
-# log homeruns 
-simple_data['log_HR'] = (all_data.HR+1.).apply(numpy.log)
-
-# remove nan data
-simple_data = simple_data.dropna()
-
-# create lagged run variables from 1 to 5 years
-#simple_data['R_L1'] = simple_data.HR.shift(1)
-#simple_data['R_L2'] = simple_data.HR.shift(2)
-#simple_data['R_L3'] = simple_data.HR.shift(3)
-#simple_data['R_L4'] = simple_data.HR.shift(4)
-#simple_data['R_L5'] = simple_data.HR.shift(5)
-
-
-# maybe cumulative HR
-#simple_data['cum_hr'] = simple_data.HR.cumsum()
- 
-pandas.tools.plotting.scatter_matrix(simple_data)
-
-
-# instantiate class
-linear_fit = LinearRegression()
-# train/fit model to predict brain weights given the body weights
-linear_fit.fit(simple_data.HR , simple_data.salary)
-# print beta parameters (should be all positive)
-print "sklearn intercept and coef (linear):", linear_fit.intercept_, linear_fit.coef_
-
-#loop through the relevant columns and see which are impactful
-for col in cols:
-     ind = y_detrnd.dropna().index & all_data[col].dropna().index
-     print "Regressing "+col
-     reg = pandas.ols(x = all_data.loc[ind, col], y = y_detrnd[ind])
-     print reg.beta
-     print reg.r2_adj
-'''
-
-
+avg_abs_err = numpy.mean(numpy.abs(test_y - y_hat))
+print avg_abs_err
